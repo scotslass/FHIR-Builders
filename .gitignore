@@ -1,0 +1,25 @@
+# Python virtual environments
+.env/
+venv/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# IDE files
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Environment variables
+.env
+
+# Build artifacts
+build/
+dist/
+
+# Logs
+*.log
