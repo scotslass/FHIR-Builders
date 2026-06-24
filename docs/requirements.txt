@@ -1,0 +1,7 @@
+# my-fhir-app runtime + test dependencies
+# Pin as needed; these are the minimum to run the scaffolding.
+
+httpx==0.28.1          # Medplum FHIR REST client
+python-dotenv==1.2.2   # load .env
+duckdb==1.5.2          # local result store (optional, for trend analysis)
+pytest==9.0.3          # test runner
