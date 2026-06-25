@@ -7,3 +7,4 @@ changes.
 """
 
 from piqi_mapping import patient_birthdate  # noqa: F401  (import for side-effect)
+from piqi_mapping import patient_gender  # noqa: F401  (pluggability proof)

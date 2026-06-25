@@ -6,5 +6,6 @@ This is the single sanctioned registration edit — no other existing file chang
 """
 
 from sam.sams import attr_is_date  # noqa: F401
+from sam.sams import attr_is_future_date  # noqa: F401  (pluggability proof)
 from sam.sams import attr_is_past_date  # noqa: F401
 from sam.sams import attr_is_populated  # noqa: F401
