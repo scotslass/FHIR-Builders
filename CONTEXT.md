@@ -26,6 +26,15 @@ collected by the rule engine and written to a dated report under `outputs/`.
 ## Current status
 - Scaffolding created. Medplum client, engine, registry, and example builtin
   rules are stubbed and unit-tested. Live Medplum fetch not yet wired to creds.
+- PIQI SAM rule source added (branch feat/synthetic-seeder-and-async-loader):
+  - Engine is now tri-state — EngineResult has a `could_not_assess` channel
+    distinct from `violations`; report CSV/DB gained a `status` column.
+  - New packages: `src/sam/` (SAM base/registry/runner + 3 birthDate SAMs) and
+    `src/piqi_mapping/` (FHIR→PIQI mapper dispatcher). Bridge rule
+    `patient-birthdate-is-valid` in `src/quality_rules/sam_rules.py`.
+  - Pluggability proof: `Attr_IsFutureDate` + `person.gender` mapper +
+    `sam_rules_proof.py` (kept as 2nd example). See docs/sam-*.md.
+  - 53 tests pass. Not committed yet.
 - [update this each session]
 
 ## Testing

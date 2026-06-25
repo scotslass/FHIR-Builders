@@ -185,6 +185,86 @@ automatically. See `src/quality_rules/builtin.py` for more examples.
 
 ---
 
+## PIQI SAM rules
+
+The engine also supports **Simple Assessment Modules (SAMs)** from the HL7 PIQI
+Framework as a rule source, running *alongside* the rules above. A SAM is a
+small, named check returning `PASS` / `FAIL` / `COULD_NOT_ASSESS`; SAMs chain via
+prerequisites, and the chain is wired into the engine as an ordinary registered
+rule. Incoming FHIR resources are translated into PIQI attribute shapes by a
+mapping layer before any SAM runs.
+
+```
+FHIR resource ─▶ piqi_mapping (FHIR→PIQI) ─▶ sam.runner (SAM chain) ─▶ Rule (engine)
+```
+
+The worked example is the `Patient.birthDate` chain
+(`Attr_IsPopulated → Attr_IsDate → Attr_IsPastDate`), registered as the rule
+`patient-birthdate-is-valid`. `COULD_NOT_ASSESS` outcomes are reported in a
+separate channel (CSV `status=could_not_assess`) and never trip the `fail_on`
+gate, so they are scored distinctly from failures.
+
+Three independent plug points — each addition is **new files + one registration
+line**, never an edit to existing SAM/mapping/runner code:
+
+**1. Add a SAM** — new module under `src/sam/sams/`, then one import line in
+`src/sam/sams/__init__.py`:
+
+```python
+from sam.base import SAM, Outcome
+from sam.registry import register_sam
+
+@register_sam
+class AttrIsPopulated(SAM):
+    mnemonic = "Attr_IsPopulated"          # referenced by other SAMs by this string
+    success_alias = "value is populated"
+    failure_alias = "value is not populated"
+    prerequisite = None                    # or another SAM's mnemonic
+    hdqt_dimension = "Completeness"
+
+    def evaluate(self, value) -> Outcome:
+        return Outcome.PASS if value.is_populated else Outcome.FAIL
+```
+
+**2. Add a FHIR field mapping** — new module under `src/piqi_mapping/`, then one
+import line in `src/piqi_mapping/__init__.py`. Register it by the PIQI path it
+produces; extract and reshape only (no pass/fail judgment), and pass missing data
+through as an unpopulated `SimpleAttribute` so `Attr_IsPopulated` reports it:
+
+```python
+from piqi_mapping.base import SimpleAttribute
+from piqi_mapping.dispatcher import register_mapper
+
+@register_mapper("person.birthDate")
+def map_patient_birthdate(resource: dict) -> SimpleAttribute:
+    return SimpleAttribute(value=resource.get("birthDate"))
+```
+
+**3. Wire a chain into the engine** — subclass `SamChainRule` (no engine code
+changes), set the four attributes, `@register` it, and add one import line in
+`src/quality_rules/__init__.py`:
+
+```python
+from quality_rules.registry import register
+from quality_rules.sam_rules import SamChainRule
+from quality_rules.base import Severity
+
+@register
+class PatientBirthDateIsValid(SamChainRule):
+    id = "patient-birthdate-is-valid"
+    resource_types = ("Patient",)
+    severity = Severity.WARNING
+    piqi_path = "person.birthDate"         # which mapper feeds this rule
+    terminal_sam = "Attr_IsPastDate"       # last SAM in the chain
+```
+
+A second worked example (`Attr_IsFutureDate` + `Patient.gender`) and a zero-diff
+proof of this pluggability live in
+[`docs/sam-pluggability-proof.md`](docs/sam-pluggability-proof.md). Full design
+rationale is in [`docs/sam-implementation-plan.md`](docs/sam-implementation-plan.md).
+
+---
+
 ## Output
 
 Reports are written to `outputs/`:

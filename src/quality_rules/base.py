@@ -35,7 +35,7 @@ class Severity(enum.IntEnum):
 
 @dataclass(frozen=True)
 class Violation:
-    """A single failed check against one resource."""
+    """A single failed check against one resource (a ``FAIL`` outcome)."""
 
     rule_id: str
     severity: Severity
@@ -48,6 +48,40 @@ class Violation:
         return {
             "rule_id": self.rule_id,
             "severity": str(self.severity),
+            "status": "fail",
+            "resource_type": self.resource_type,
+            "resource_id": self.resource_id,
+            "message": self.message,
+        }
+
+
+@dataclass(frozen=True)
+class CouldNotAssess:
+    """A check that could not be evaluated for a resource.
+
+    Distinct from :class:`Violation`: a ``COULD_NOT_ASSESS`` outcome means the
+    rule could not reach a pass/fail verdict (e.g. a PIQI SAM chain halted on an
+    unmet prerequisite). It must not be scored the same way as a failure, so the
+    engine collects these in a separate channel and they never trip the
+    ``fail_on`` severity gate.
+
+    ``mnemonic`` and ``dimension`` carry SAM metadata so logging/reporting can
+    show a human-readable reason rather than just a boolean.
+    """
+
+    rule_id: str
+    resource_type: str
+    resource_id: str
+    message: str
+    mnemonic: str = ""
+    dimension: str = ""
+
+    def as_row(self) -> dict[str, str]:
+        """Flatten to a CSV-friendly dict (same columns as :class:`Violation`)."""
+        return {
+            "rule_id": self.rule_id,
+            "severity": "",
+            "status": "could_not_assess",
             "resource_type": self.resource_type,
             "resource_id": self.resource_id,
             "message": self.message,

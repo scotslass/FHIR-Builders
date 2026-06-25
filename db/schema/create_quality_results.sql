@@ -5,7 +5,8 @@
 CREATE TABLE IF NOT EXISTS quality_results (
     run_date       DATE        NOT NULL,
     rule_id        VARCHAR     NOT NULL,
-    severity       VARCHAR     NOT NULL,   -- error | warning | info
+    severity       VARCHAR,                -- error | warning | info (empty for could_not_assess)
+    status         VARCHAR     NOT NULL DEFAULT 'fail',  -- fail | could_not_assess
     resource_type  VARCHAR     NOT NULL,
     resource_id    VARCHAR     NOT NULL,
     message        VARCHAR     NOT NULL

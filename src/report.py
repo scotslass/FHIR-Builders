@@ -12,7 +12,7 @@ from pathlib import Path
 
 from rule_engine import EngineResult
 
-CSV_FIELDNAMES = ["rule_id", "severity", "resource_type", "resource_id", "message"]
+CSV_FIELDNAMES = ["rule_id", "severity", "status", "resource_type", "resource_id", "message"]
 
 
 def report_filename(prefix: str = "quality_report") -> str:
@@ -21,13 +21,20 @@ def report_filename(prefix: str = "quality_report") -> str:
 
 
 def write_csv(result: EngineResult, output_path: Path) -> Path:
-    """Write all violations in ``result`` to ``output_path`` as CSV."""
+    """Write all outcomes in ``result`` to ``output_path`` as CSV.
+
+    One row per failure (``status=fail``) followed by one row per could-not-assess
+    outcome (``status=could_not_assess``). The ``status`` column lets downstream
+    consumers tell the two apart.
+    """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
         writer.writeheader()
         for violation in result.violations:
             writer.writerow(violation.as_row())
+        for cna in result.could_not_assess:
+            writer.writerow(cna.as_row())
     return output_path
 
 
@@ -44,5 +51,7 @@ def format_summary(result: EngineResult) -> str:
     for sev in ("error", "warning", "info"):
         if sev in severity_counts:
             lines.append(f"  {sev:<20} {severity_counts[sev]}")
+    if result.could_not_assess:
+        lines.append(f"Could not assess  : {len(result.could_not_assess)}")
     lines.append("───────────────────────────────────────────────────────")
     return "\n".join(lines)
