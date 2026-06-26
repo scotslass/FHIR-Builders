@@ -317,6 +317,30 @@ fhirpathpy==1.2.1      # pinned — not >=1.2 or unpinned
 
 FHIRPath is a large spec and this library is what's trusted to extract values correctly. A silent minor-version bump that changes `ofType()`, partial-date, or empty-collection behavior shifts the engine's *verdicts* with no code change on our side. Pinning (plus a lockfile so transitive deps are pinned too) makes results reproducible and turns upgrades into a deliberate, reviewed event — bump the pin, re-run the (b) fixture tests as the regression gate, confirm nothing moved.
 
+### FHIRPath vs. hand-rolled: decision criteria
+
+**The Claude Code reframe.** The classic argument *for* FHIRPath is "it saves writing tedious extraction boilerplate." But when Claude Code generates a correct hand-written mapper *and* its fixture tests from a sample resource in seconds, that authoring-effort advantage evaporates — the LLM writes either artifact equally well. So the choice should be driven by the **runtime and maintenance properties of the committed artifact**, not by typing effort.
+
+Pick by field shape and operating constraints:
+
+| Dimension | -> Roll your own (Claude-written dict/Python) | -> FHIRPath (fhirpath-py) |
+|---|---|---|
+| **Field shape** | Flat scalar (`birthDate`, `gender`, `status`) | Nested / repeating / filtered / choice-type (`name.where(use='official').family`, `value.ofType(Quantity)`) |
+| **Hot path / volume** | High-throughput (120k-resource runs) — dict access is free | Low-volume or off the hot path |
+| **Transformation vs extraction** | Normalizing, combining, conditionals -> must be code | Pure extraction, no logic |
+| **Debuggability** | Verdict-critical paths to step through with a stack trace | OK to debug via fixture tests |
+| **Dependency tolerance** | Stay dependency-light (current stance) | OK adding one pinned, vetted dep |
+| **Who maintains mappings** | Engineers | Analysts/non-engineers contributing mappings as data (NFR1) |
+| **Breadth of similar nested paths** | A handful of fields | Dozens of structurally-similar nested paths (amortizes the dep) |
+
+**Decision rule.** Default to a Claude-written hand-rolled mapper. Switch a *specific* field to FHIRPath only when its **shape is genuinely nested/array/choice-type** AND it is **not on the hottest path** AND the dependency is accepted. Any field needing *transformation* beyond extraction stays code regardless. Let field complexity be the trigger; treat volume, transformation needs, and dependency tolerance as vetoes back toward code.
+
+**Applied here.** `Patient.birthDate` and `Patient.gender` are flat scalars on the hot path -> hand-rolled (FHIRPath would be net-negative). A future `Observation.value.ofType(Quantity).value` or `Patient.name.where(use='official').family` is a FHIRPath candidate *if* it clears the volume/dependency vetoes and passes a per-expression fixture test.
+
+### Current decision (this iteration)
+
+**Stick with hand-written `dict` mappers for now**, with an eye on introducing FHIRPath when field complexity makes it worth it. No dependency is added this iteration. Revisit per the decision rule above when the first genuinely nested/array/choice-type field arrives; adoption is incremental (the dispatcher accepts a FHIRPath-backed mapper alongside existing code mappers with no structural change).
+
 ### References
 
 - [fhirpath-py (beda-software)](https://github.com/beda-software/fhirpath-py) · [PyPI](https://pypi.org/project/fhirpathpy/)
