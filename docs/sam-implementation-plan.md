@@ -187,3 +187,139 @@ the birthDate chain reads as a template for the next one.
 - **CSV/DB schema column** — the one accepted NFR2 tradeoff; keep it additive with a backward-compatible default.
 - **`evaluate()` seam for CNA** — existing rules' return contract must stay identical; CNA path lives only on the SAM rule.
 - **Rule-id convention** — `patient-birthdate-is-valid` (kebab) intentionally diverges from the requirement's literal name.
+
+---
+
+## 11. Future phase — mapping-layer acceleration (design-only)
+
+> Not part of the current iteration. Captured here so the mapping layer can scale
+> to many fields/resource types without a rewrite. The current per-field mapper
+> functions are correct and stay valid; this is about what goes *inside* a mapper
+> as the field count grows.
+
+### Problem
+
+Hand-written `dict.get()` mappers are fine for one field, but verbose and
+error-prone for nested/array/choice elements
+(`Patient.name.where(use='official').family.first()`,
+`Observation.value.ofType(Quantity).value`). The mapping surface is where most of
+the future per-field work lives.
+
+### Recommended accelerant: `fhirpath-py` at the mapper body only
+
+Replace the *body* of a mapper with a declarative **FHIRPath** expression, so a
+mapper becomes data (`"person.birthDate" -> "Patient.birthDate"`) rather than
+code. This advances the NFR1 "SAM/mapping declarable as data" goal that was
+deferred, and fits the existing path-keyed dispatcher with no structural change.
+
+Why it wins against the stated priorities:
+
+| Priority | Why fhirpath-py |
+|---|---|
+| **Code compatibility** (top) | Operates on the same plain `dict` already passed through the engine and `medplum_client`. No model migration; "rule input is a FHIR resource dict" convention preserved; NFR2 intact. |
+| **Ease of use** | Nested/array/choice-type extraction collapses to one FHIRPath string instead of nested `.get()` + index guards. |
+| **Pluggability** | A mapper collapses to `{piqi_path: fhirpath_expr}` — adding field #2 becomes a data entry, not a function. Dispatcher and SAM layers unchanged. |
+
+### Options considered
+
+| Tool | Verdict |
+|---|---|
+| **fhirpath-py** (beda-software) — FHIRPath on plain dicts, R4/R5 | **Recommended.** Right layer, no migration, declarative. |
+| **fhir.resources** (Pydantic typed models, R5) | Use only at the edge for validation if needed; full adoption forces `dict -> Model` conversion and breaks the dict convention. |
+| **fhirpath** (nazrulworld) — FHIRPath + search/FQL | Overkill; query features not needed. |
+| **fhirpy / fhirclient** — FHIR clients | Wrong layer; overlaps `medplum_client`, not a mapper. |
+| **FHIR Mapping Language / StructureMap** (Matchbox/HAPI) | Standards-grade but a JVM dependency; revisit only at large scale. |
+| **LLM-assisted authoring** (Claude) | Good as an authoring-time codegen helper (draft the FHIRPath + a fixture from a sample resource, commit the string). Keep out of the runtime path: non-deterministic, and PHI to a non-BAA endpoint. |
+
+### Integration sketch (when/if adopted)
+
+- Add one generic `FhirPathMapper` that wraps `fhirpath-py`, registered against a
+  PIQI path with its expression. Existing bespoke mappers keep working unchanged
+  (the dispatcher doesn't care whether a mapper is code or a FHIRPath wrapper), so
+  adoption is **incremental** — `Patient.birthDate` can stay as-is.
+- The wrapper still returns a `SimpleAttribute` and **must not judge**: FHIRPath
+  returns a list, so the wrapper picks first-match / empty; an empty result becomes
+  `value=None`, leaving `Attr_IsPopulated` to report the gap (FR9).
+
+### Watch-items
+
+- **Partial-date precision** stays the SAM's job — FHIRPath returns the raw `date`
+  string; `parse_fhir_date` keeps handling `YYYY` / `YYYY-MM` / `YYYY-MM-DD`.
+- **R4 vs R5** — pin to R4 to match the current convention (NFR4); revisit on R5 ingest.
+- **Dependency budget** — this would be the first runtime FHIR dependency; adopt as a conscious choice.
+- **LLM codegen** — authoring-time only; commit the resulting expression, never call an LLM at runtime.
+
+### Tradeoffs / downsides (on record)
+
+Ordered by impact on *this* context (high-volume, correctness-critical, deliberately dependency-light).
+
+**Highest impact**
+
+- **Silent empties corrupt verdicts.** FHIRPath returns an empty collection for *both* "field genuinely absent" *and* "expression is wrong (typo/bad path)". Both collapse to `value=None` -> `Attr_IsPopulated` fails -> a **false `COULD_NOT_ASSESS`**. A bug in the *mapping expression* disguises itself as a *data-quality finding*, silently. Mitigation: a fixture test per expression proving it extracts the value from a known-good resource, so a broken expression fails in our tests, not as a mystery CNA in production.
+- **Performance at volume.** FHIRPath is parsed and tree-walk-interpreted at runtime; `resource.get("birthDate")` is essentially free. At ~120k resources / 100 patients this compounds per-field. Mitigation: compile/cache the parsed expression once per mapper (not per resource); map only needed fields. Still slower than dict access — measure before using on hot paths.
+- **Trusting a third party for correctness.** FHIRPath is a large spec; a Python implementation may have unimplemented functions or subtle divergences from reference `fhirpath.js`. A conformance bug in the extractor produces wrong quality results. Mitigation: restrict to the simple navigation subset actually used; pin the version; test the expressions relied on.
+
+**Worth knowing**
+
+- **Everything is a collection.** Every mapper must encode "first / single / empty"; for repeating elements (multiple names/identifiers) the choice of *which* match feeds the SAM is implicit in the expression and easy to get wrong.
+- **Stringly-typed, weaker tooling.** Expressions are opaque strings — no mypy, no autocomplete, no static check that the path is valid for the resource type; typos surface only at runtime.
+- **Second mapping idiom — tension with NFR5.** Mixing code mappers and expression-string mappers means contributors must know both. Mitigation: if adopted, make it the default going forward and migrate deliberately rather than leaving a permanent split.
+- **Extraction only, not transformation.** FHIRPath pulls values out; normalization / combining fields / conditional logic still drop back to Python. It is a better extractor, not a complete mapping DSL.
+- **First runtime FHIR dependency + bus-factor.** Single small-org maintainer, smaller community than HAPI. Mitigation: pin it, vet release cadence/open issues before committing, keep the `FhirPathMapper` wrapper thin so the engine can be swapped without touching the dispatcher or SAMs.
+
+### Decision stance
+
+The break-even is **field complexity vs. volume/correctness sensitivity**. For flat scalars like `Patient.birthDate`, fhirpath-py is net negative — slower and riskier than the existing one-line `.get()`, for no gain. It pays off only for genuinely nested/array/choice-type fields.
+
+Recommended stance: **keep the hand-written mapper as the default for simple fields; reach for fhirpath-py only for the gnarly nested/choice cases**, and gate any adoption behind the three guardrails below. This preserves the "must not judge / `value=None`" contract while containing the silent-empty and performance risks.
+
+### The three adoption gates (expanded)
+
+Each gate closes one of the highest-impact risks; together they make adoption *safe* rather than merely *convenient*. A FHIRPath engine trades explicit, debuggable code for terse, opaque strings — these buy back the visibility given up.
+
+| Risk | Gate that closes it |
+|---|---|
+| Slow at volume | **(a)** parse once, evaluate many |
+| Typo'd expression -> false "could not assess" | **(b)** value-asserting fixture test per expression |
+| Library upgrade silently changes verdicts | **(c)** pinned version + lockfile, fixture tests as the upgrade gate |
+
+**(a) Cached (pre-)compilation — closes the performance risk.**
+A FHIRPath engine parses the expression string into a tree, then evaluates that tree against a resource. Parsing is the expensive part and is identical every call. Parse **once** (at registration / first use) and reuse the compiled form per resource — never parse inside the per-resource loop:
+
+```python
+# at registration (once):
+self._compiled = compile("Patient.birthDate")
+# per resource (~120k times):
+self._compiled(resource)
+```
+
+Pay the parse cost once per *mapper*, not once per *resource*. If the library only exposes one-shot `evaluate(resource, expr)`, wrap it with memoization on the parsed form. Verify the library exposes a compile/evaluate split when evaluating it.
+
+**(b) Per-expression fixture test — closes the silent-empty correctness trap.**
+FHIRPath returns an empty collection for *both* a genuinely absent field and a wrong expression (typo/bad path), so a broken expression silently becomes a false `COULD_NOT_ASSESS` that looks like a data problem, not a code problem. For every committed expression, commit a test asserting it extracts a **non-empty value** from a known-good fixture:
+
+```python
+def test_birthdate_expression_extracts():
+    patient = {"resourceType": "Patient", "id": "p", "birthDate": "1992-03-14"}
+    attr = map_field("person.birthDate", patient)
+    assert attr.value == "1992-03-14"   # proves the path works, not just "returns empty"
+```
+
+The assertion must prove extraction *works* — a test that only checks the absent case (`value is None`) passes even with a broken expression. This moves the failure from production (silent, misattributed) into CI (loud).
+
+**(c) Pinned version (+ lockfile) — closes the third-party-conformance risk.**
+Lock the dependency to an exact version, not a floating range:
+
+```
+# docs/requirements.txt
+fhirpathpy==1.2.1      # pinned — not >=1.2 or unpinned
+```
+
+FHIRPath is a large spec and this library is what's trusted to extract values correctly. A silent minor-version bump that changes `ofType()`, partial-date, or empty-collection behavior shifts the engine's *verdicts* with no code change on our side. Pinning (plus a lockfile so transitive deps are pinned too) makes results reproducible and turns upgrades into a deliberate, reviewed event — bump the pin, re-run the (b) fixture tests as the regression gate, confirm nothing moved.
+
+### References
+
+- [fhirpath-py (beda-software)](https://github.com/beda-software/fhirpath-py) · [PyPI](https://pypi.org/project/fhirpathpy/)
+- [fhirpath (nazrulworld)](https://github.com/nazrulworld/fhirpath)
+- [fhir.resources](https://pypi.org/project/fhir.resources/)
+- [HL7 FHIRPath Implementations](https://confluence.hl7.org/spaces/FHIRI/pages/161060129/FHIRPath+Implementations)
