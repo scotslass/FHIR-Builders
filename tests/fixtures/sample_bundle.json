@@ -1,0 +1,62 @@
+{
+  "resourceType": "Bundle",
+  "type": "collection",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "id": "patient-good",
+        "name": [{"family": "Synthetic", "given": ["Ada"]}],
+        "gender": "female",
+        "birthDate": "1985-04-12"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "id": "patient-missing-birthdate",
+        "name": [{"family": "Testpatient", "given": ["Bob"]}],
+        "gender": "male"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "id": "patient-bad-gender-noname",
+        "gender": "M"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-good",
+        "status": "final",
+        "code": {"coding": [{"system": "http://loinc.org", "code": "8867-4", "display": "Heart rate"}]},
+        "valueQuantity": {"value": 72, "unit": "beats/min"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-final-no-value",
+        "status": "final",
+        "code": {"coding": [{"system": "http://loinc.org", "code": "8480-6", "display": "Systolic BP"}]}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "enc-good",
+        "status": "finished",
+        "subject": {"reference": "Patient/patient-good"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "enc-no-subject",
+        "status": "finished"
+      }
+    }
+  ]
+}

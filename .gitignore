@@ -6,6 +6,7 @@ venv/
 # Python cache
 __pycache__/
 *.pyc
+.pytest_cache/
 
 # IDE files
 .vscode/
@@ -14,8 +15,15 @@ __pycache__/
 # macOS
 .DS_Store
 
-# Environment variables
+# Environment variables & secrets (never commit real credentials)
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+secrets.json
+credentials.json
 
 # Build artifacts
 build/
@@ -23,3 +31,22 @@ dist/
 
 # Logs
 *.log
+
+# Claude Code local config / skills (local tooling, not project code)
+.claude/
+
+# ephemeral data stores (safe to delete; rebuilt from source)
+db/stores/*.duckdb
+
+# ─── Large / downloadable datasets — do NOT commit ───────────────────────────
+# Synthea synthetic patient data: downloaded by `seed_medplum.py --download`
+# from synthetichealth.github.io (~30 MB zip, ~400 MB extracted). Regenerable
+# from that external source; never commit clinical data even when synthetic.
+data/raw/
+*.zip
+
+# Generated, regenerable artifacts
+# Exported/prepared bundle files (large; rebuilt from source)
+data/exports/
+# Generated quality reports
+outputs/*.csv
