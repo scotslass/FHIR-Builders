@@ -5,3 +5,7 @@ httpx==0.28.1          # Medplum FHIR REST client
 python-dotenv==1.2.2   # load .env
 duckdb==1.5.2          # local result store (optional, for trend analysis)
 pytest==9.0.3          # test runner
+
+# Web UI (local, localhost-only — see docs/web-ui-plan.md)
+fastapi==0.115.6       # JSON API backend
+uvicorn==0.34.0        # ASGI server (bind to 127.0.0.1)

@@ -147,6 +147,7 @@ wrong values rather than producing invalid resources. The seeded population is
 | `.env` | Medplum base URL, client id, client secret (gitignored). |
 | `config/quality_rules.cfg` | Engine defaults: enabled rule sets, severities, fetch page size, default resource types. |
 | `config/validation.cfg` | Default input/output paths for the validation test suite. |
+| `config/web.cfg` | Web UI server settings: `port`, `default_cap`, `log_level`. |
 
 Key settings in `quality_rules.cfg`:
 
@@ -262,6 +263,39 @@ A second worked example (`Attr_IsFutureDate` + `Patient.gender`) and a zero-diff
 proof of this pluggability live in
 [`docs/sam-pluggability-proof.md`](docs/sam-pluggability-proof.md). Full design
 rationale is in [`docs/sam-implementation-plan.md`](docs/sam-implementation-plan.md).
+
+---
+
+## Web UI (local)
+
+A simple browser UI to run the checker against Medplum and read results in a
+table — pick **all rules** or a **single rule**, choose a resource type, set a
+cap, and hit **Run**.
+
+```bash
+python src/run_web.py            # uses config/web.cfg (default http://127.0.0.1:8000)
+python src/run_web.py --port 8080            # override the port for one run
+python src/run_web.py --config path/to/web.cfg
+```
+
+Server settings live in **`config/web.cfg`** (`[web]` section): `port`,
+`default_cap`, and `log_level`. Precedence is the same as the rest of the app —
+CLI flag > `config/web.cfg` > built-in default.
+
+It calls the same engine the CLI does (via `src/quality_service.py`), so results
+are identical. Every run reports **coverage** — "evaluated N of M" per resource
+type — so a capped run is never mistaken for a full-dataset total. The per-type
+**cap** (from `config/web.cfg`, also settable on the page or via the
+`WEB_DEFAULT_CAP` env var) keeps interactive runs fast; set it to 0 for an
+uncapped sweep.
+
+> ⚠️ **Localhost-only and unauthenticated by design.** The server binds to
+> `127.0.0.1` and rejects non-localhost `Host` headers (a DNS-rebinding guard).
+> Medplum credentials stay server-side (loaded from `.env`) and are never sent to
+> the browser; result rows carry only resource type + id + message, never full
+> FHIR bodies. **Do not expose this on a network** (no `0.0.0.0`, no tunnel)
+> without first adding authentication and TLS — the no-auth model is safe only on
+> localhost. For the full authoritative sweep, use the CLI (`--limit 0`).
 
 ---
 

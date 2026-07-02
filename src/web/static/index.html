@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Data Quality — my-fhir-app</title>
+  <style>
+    :root {
+      --bg: #f7f8fa; --card: #fff; --ink: #1c2330; --muted: #5b6677;
+      --line: #e3e7ee; --accent: #2563eb; --accent-ink: #fff;
+      --error: #b42318; --error-bg: #fef3f2; --warn: #b54708; --warn-bg: #fffaeb;
+      --info: #1849a9; --info-bg: #eff8ff; --ok: #067647; --ok-bg: #ecfdf3;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 15px/1.5 -apple-system, Segoe UI, Roboto, sans-serif;
+           background: var(--bg); color: var(--ink); }
+    header { padding: 20px 24px; border-bottom: 1px solid var(--line); background: var(--card); }
+    h1 { margin: 0; font-size: 19px; }
+    .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    main { max-width: 1080px; margin: 0 auto; padding: 24px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+            padding: 18px 20px; margin-bottom: 18px; }
+    .controls { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; }
+    .field { display: flex; flex-direction: column; gap: 5px; }
+    label { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+    select, input[type=number] { padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px;
+            font-size: 14px; background: #fff; min-width: 160px; }
+    button { padding: 9px 18px; border: 0; border-radius: 7px; background: var(--accent);
+             color: var(--accent-ink); font-size: 14px; font-weight: 600; cursor: pointer; }
+    button:disabled { opacity: .55; cursor: default; }
+    .hint { color: var(--muted); font-size: 12px; margin-top: 10px; }
+    .banner { padding: 10px 14px; border-radius: 8px; font-size: 14px; margin-bottom: 14px; }
+    .banner.warn { background: var(--warn-bg); color: var(--warn); border: 1px solid #fedf89; }
+    .banner.ok { background: var(--ok-bg); color: var(--ok); border: 1px solid #abefc6; }
+    .banner.err { background: var(--error-bg); color: var(--error); border: 1px solid #fecdca; }
+    .summary { display: flex; gap: 22px; flex-wrap: wrap; margin: 4px 0 14px; }
+    .stat { font-size: 13px; color: var(--muted); }
+    .stat b { display: block; font-size: 22px; color: var(--ink); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+    td.id { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--muted); }
+    .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+    .pill.error { background: var(--error-bg); color: var(--error); }
+    .pill.warning { background: var(--warn-bg); color: var(--warn); }
+    .pill.info { background: var(--info-bg); color: var(--info); }
+    .pill.could_not_assess { background: #f1f3f7; color: var(--muted); }
+    .cov { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+    .cov b { color: var(--ink); }
+    .empty { color: var(--muted); padding: 16px 0; }
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #fff;
+               border-top-color: transparent; border-radius: 50%; animation: spin .7s linear infinite;
+               vertical-align: -2px; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Data Quality Checker</h1>
+    <div class="sub">Runs registered rules against the Medplum database · localhost only</div>
+  </header>
+  <main>
+    <div class="card">
+      <div class="controls">
+        <div class="field">
+          <label for="mode">Scope</label>
+          <select id="mode">
+            <option value="all">All rules</option>
+            <option value="one">One rule…</option>
+          </select>
+        </div>
+        <div class="field" id="ruleField" style="display:none">
+          <label for="rule">Rule</label>
+          <select id="rule"></select>
+        </div>
+        <div class="field">
+          <label for="rtype">Resource type</label>
+          <select id="rtype"><option value="">All covered types</option></select>
+        </div>
+        <div class="field">
+          <label for="limit">Cap (per type)</label>
+          <input type="number" id="limit" min="0" value="500" />
+        </div>
+        <button id="run">Run check</button>
+      </div>
+      <div class="hint">
+        The cap limits how many resources of each type are evaluated, so a run stays fast.
+        Results always show how many were evaluated vs available — set the cap to 0 for no limit
+        (may be slow on large databases).
+      </div>
+    </div>
+
+    <div id="status"></div>
+
+    <div class="card" id="resultsCard" style="display:none">
+      <div id="banner"></div>
+      <div class="summary" id="summary"></div>
+      <div class="cov" id="coverage"></div>
+      <table>
+        <thead>
+          <tr><th>Rule</th><th>Severity / Status</th><th>Resource type</th><th>Resource id</th><th>Message</th></tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div class="empty" id="emptyRows" style="display:none">No violations found in the evaluated resources. ✅</div>
+    </div>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => (
+      { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+    async function loadOptions() {
+      const [rt, rl] = await Promise.all([
+        fetch("/api/resource-types").then(r => r.json()),
+        fetch("/api/rules").then(r => r.json()),
+      ]);
+      for (const t of rt.resource_types) {
+        $("rtype").insertAdjacentHTML("beforeend", `<option value="${esc(t)}">${esc(t)}</option>`);
+      }
+      for (const r of rl.rules) {
+        $("rule").insertAdjacentHTML("beforeend",
+          `<option value="${esc(r.id)}">${esc(r.id)} — ${esc(r.description)}</option>`);
+      }
+    }
+
+    $("mode").addEventListener("change", () => {
+      $("ruleField").style.display = $("mode").value === "one" ? "flex" : "none";
+    });
+
+    function num(n) { return Number(n).toLocaleString(); }
+
+    function renderCoverage(data) {
+      const parts = data.coverage.map(c => {
+        const total = c.total == null ? "?" : num(c.total);
+        const flag = c.truncated ? " ⚠️" : "";
+        return `<b>${esc(c.resource_type)}</b> ${num(c.fetched)} of ${total}${flag}`;
+      });
+      $("coverage").innerHTML = parts.length ? "Evaluated: " + parts.join(" &nbsp;·&nbsp; ") : "";
+
+      const banner = $("banner");
+      if (data.complete) {
+        banner.className = "banner ok";
+        banner.textContent = "✅ Full coverage — every available resource was evaluated.";
+      } else {
+        const cut = data.coverage.filter(c => c.truncated)
+          .map(c => `${num(c.fetched)} of ${num(c.total)} ${c.resource_type}`).join(", ");
+        banner.className = "banner warn";
+        banner.textContent = `⚠️ Partial run (cap ${num(data.cap)}). Evaluated ${cut}. More data was not evaluated — raise or clear the cap for a full sweep.`;
+      }
+    }
+
+    function renderSummary(s) {
+      const sev = s.severity_counts || {};
+      $("summary").innerHTML = `
+        <div class="stat"><b>${num(s.resources_checked)}</b>resources evaluated</div>
+        <div class="stat"><b>${num(s.violations)}</b>violations</div>
+        <div class="stat"><b>${num(sev.error || 0)}</b>errors</div>
+        <div class="stat"><b>${num(sev.warning || 0)}</b>warnings</div>
+        <div class="stat"><b>${num(s.could_not_assess)}</b>could not assess</div>`;
+    }
+
+    function renderRows(data) {
+      const rows = [...data.violations, ...data.could_not_assess];
+      const tbody = $("rows");
+      tbody.innerHTML = rows.map(r => {
+        const sev = r.status === "could_not_assess" ? "could_not_assess" : r.severity;
+        const label = r.status === "could_not_assess" ? "could not assess" : r.severity;
+        return `<tr>
+          <td>${esc(r.rule_id)}</td>
+          <td><span class="pill ${sev}">${esc(label)}</span></td>
+          <td>${esc(r.resource_type)}</td>
+          <td class="id">${esc(r.resource_id)}</td>
+          <td>${esc(r.message)}</td></tr>`;
+      }).join("");
+      $("emptyRows").style.display = rows.length ? "none" : "block";
+    }
+
+    async function run() {
+      const btn = $("run");
+      btn.disabled = true;
+      $("status").innerHTML = `<div class="banner ok"><span class="spinner"></span>Running check…</div>`;
+      $("resultsCard").style.display = "none";
+      const body = { limit: Number($("limit").value) || 0 };
+      if ($("rtype").value) body.resource_types = [$("rtype").value];
+      if ($("mode").value === "one") body.rule_id = $("rule").value;
+      try {
+        const resp = await fetch("/api/run", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          $("status").innerHTML = `<div class="banner err">⚠️ ${esc(data.error || resp.statusText)}</div>`;
+          return;
+        }
+        $("status").innerHTML = "";
+        renderCoverage(data);
+        renderSummary(data.summary);
+        renderRows(data);
+        $("resultsCard").style.display = "block";
+      } catch (e) {
+        $("status").innerHTML = `<div class="banner err">⚠️ ${esc(e.message)}</div>`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    $("run").addEventListener("click", run);
+    loadOptions();
+  </script>
+</body>
+</html>

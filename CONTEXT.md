@@ -15,6 +15,7 @@ collected by the rule engine and written to a dated report under `outputs/`.
 ## Config
 - config/quality_rules.cfg — engine defaults (page size, default resource types, fail_on)
 - config/validation.cfg    — default paths for the validation test suite
+- config/web.cfg           — web UI server settings (port, default_cap, log_level)
 - .env                     — Medplum base URL, client id, client secret
 
 ## Key rules to know
@@ -24,17 +25,25 @@ collected by the rule engine and written to a dated report under `outputs/`.
 - A rule's check() returns a list of violation messages; empty list == pass.
 
 ## Current status
-- Scaffolding created. Medplum client, engine, registry, and example builtin
-  rules are stubbed and unit-tested. Live Medplum fetch not yet wired to creds.
-- PIQI SAM rule source added (branch feat/synthetic-seeder-and-async-loader):
-  - Engine is now tri-state — EngineResult has a `could_not_assess` channel
-    distinct from `violations`; report CSV/DB gained a `status` column.
-  - New packages: `src/sam/` (SAM base/registry/runner + 3 birthDate SAMs) and
-    `src/piqi_mapping/` (FHIR→PIQI mapper dispatcher). Bridge rule
-    `patient-birthdate-is-valid` in `src/quality_rules/sam_rules.py`.
-  - Pluggability proof: `Attr_IsFutureDate` + `person.gender` mapper +
-    `sam_rules_proof.py` (kept as 2nd example). See docs/sam-*.md.
-  - 53 tests pass. Not committed yet.
+- Synthetic seeder, async loader, and PIQI SAM rule source are MERGED (commit
+  cae874c / PR #1). The engine is tri-state — EngineResult has a
+  `could_not_assess` channel distinct from `violations`; report CSV/DB carry a
+  `status` column. Packages: `src/sam/` (SAM base/registry/runner + birthDate
+  SAMs) and `src/piqi_mapping/` (FHIR→PIQI dispatcher); bridge rule
+  `patient-birthdate-is-valid`. See docs/sam-*.md.
+- Web UI added on branch `feat/web-ui` (see docs/web-ui-plan.md):
+  - Shared core `src/quality_service.py` (`run_check` / `run_check_medplum`)
+    used by BOTH the CLI and the web API — single evaluation path, no drift.
+    `run_check_medplum` also returns per-type coverage (fetched vs total).
+  - FastAPI backend `src/web/app.py` (+ `src/run_web.py` launcher) and a single
+    static page `src/web/static/index.html`. Localhost-only: binds 127.0.0.1,
+    Host-header allowlist (DNS-rebind guard), creds never sent to client.
+  - Results show honest coverage ("evaluated N of M", truncation banner).
+  - Server settings in `config/web.cfg` (port/default_cap/log_level), loaded by
+    `src/web/config.py`; `--port`/`--config` flags override. Host is fixed to
+    127.0.0.1 (not configurable, by design).
+  - 64 tests pass (test_web_api.py + test_web_config.py). Verified end-to-end
+    against live Medplum. NOT committed yet.
 - [update this each session]
 
 ## Testing

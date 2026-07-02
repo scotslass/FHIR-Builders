@@ -39,13 +39,13 @@ from __future__ import annotations
 
 import argparse
 import configparser
-import json
 import sys
 from pathlib import Path
 
 from quality_rules.base import Severity
+from quality_service import run_check
 from report import format_summary, report_filename, write_csv
-from rule_engine import EngineResult, RuleEngine
+from rule_engine import EngineResult
 
 SCRIPT_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent
@@ -88,43 +88,6 @@ def load_config(path: Path) -> configparser.ConfigParser:
 
 def _csv_list(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
-
-
-# ── Resource sources ────────────────────────────────────────────────────────
-
-def resources_from_file(path: Path):
-    """Yield FHIR resources from a local NDJSON file or a JSON Bundle.
-
-    Useful for offline runs against synthetic fixtures (no Medplum needed).
-    """
-    text = path.read_text(encoding="utf-8").strip()
-    if not text:
-        return
-    # JSON Bundle?
-    if text.lstrip().startswith("{"):
-        doc = json.loads(text)
-        if doc.get("resourceType") == "Bundle":
-            for entry in doc.get("entry", []):
-                resource = entry.get("resource")
-                if resource is not None:
-                    yield resource
-        else:
-            yield doc  # a single resource
-        return
-    # Otherwise treat as NDJSON (one resource per line).
-    for line in text.splitlines():
-        line = line.strip()
-        if line:
-            yield json.loads(line)
-
-
-def resources_from_medplum(resource_types: list[str], params: dict, limit: int, page_size: int):
-    """Yield resources of each requested type from Medplum."""
-    from medplum_client import MedplumClient  # imported lazily so offline mode needs no creds
-
-    with MedplumClient(page_size=page_size) as client:
-        for resource_type in resource_types:
-            yield from client.search(resource_type, params=params or None, limit=limit)
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────
@@ -173,18 +136,19 @@ def main(argv: list[str] | None = None) -> int:
     if args.status:
         params["status"] = args.status
 
-    # Pick a resource source.
-    if args.from_file:
-        if not args.from_file.exists():
-            print(f"ERROR: file not found: {args.from_file}", file=sys.stderr)
-            return 2
-        resources = resources_from_file(args.from_file)
-    else:
-        resources = resources_from_medplum(resource_types, params, limit, page_size)
+    if args.from_file and not args.from_file.exists():
+        print(f"ERROR: file not found: {args.from_file}", file=sys.stderr)
+        return 2
 
-    # Run the engine.
-    engine = RuleEngine(disabled=disabled)
-    result: EngineResult = engine.run(resources)
+    # Fetch + evaluate via the shared service (same path the web API uses).
+    result: EngineResult = run_check(
+        resource_types=resource_types,
+        disabled=disabled,
+        limit=limit,
+        page_size=page_size,
+        params=params,
+        from_file=args.from_file,
+    )
 
     # Report.
     output_path = args.output or (DEFAULT_OUTPUTS / report_filename())

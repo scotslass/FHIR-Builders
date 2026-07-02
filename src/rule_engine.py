@@ -30,6 +30,19 @@ class EngineResult:
     resources_checked: int = 0
     by_resource_type: Counter = field(default_factory=Counter)
 
+    def record(self, outcome) -> None:
+        """File a single outcome record into the right channel.
+
+        ``COULD_NOT_ASSESS`` records go to :attr:`could_not_assess`; everything
+        else is a :class:`Violation` and goes to :attr:`violations`. Shared by
+        :meth:`RuleEngine.run` and coverage-aware callers so classification can
+        never drift between the two.
+        """
+        if isinstance(outcome, CouldNotAssess):
+            self.could_not_assess.append(outcome)
+        else:
+            self.violations.append(outcome)
+
     def severity_counts(self) -> dict[str, int]:
         """Return {severity_name: count} across all violations."""
         counts: Counter = Counter(str(v.severity) for v in self.violations)
@@ -84,9 +97,6 @@ class RuleEngine:
         for resource in resources:
             result.resources_checked += 1
             result.by_resource_type[resource.get("resourceType", "")] += 1
-            for record in self.evaluate_resource(resource):
-                if isinstance(record, CouldNotAssess):
-                    result.could_not_assess.append(record)
-                else:
-                    result.violations.append(record)
+            for outcome in self.evaluate_resource(resource):
+                result.record(outcome)
         return result

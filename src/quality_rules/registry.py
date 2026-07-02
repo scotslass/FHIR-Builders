@@ -37,6 +37,24 @@ def rules_for(resource_type: str, disabled: set[str] | None = None) -> list[Rule
     return [r for r in all_rules(disabled) if resource_type in r.resource_types]
 
 
+def covered_resource_types(disabled: set[str] | None = None) -> list[str]:
+    """Return the sorted set of resource types at least one rule covers.
+
+    The web UI uses this both to populate its resource-type selector and as the
+    input allowlist, so it always offers exactly the types that yield meaningful
+    results — and self-updates when a rule for a new type is added.
+    """
+    types: set[str] = set()
+    for rule in all_rules(disabled):
+        types.update(rule.resource_types)
+    return sorted(types)
+
+
+def all_rule_ids() -> set[str]:
+    """Every registered rule id (used to validate a requested single rule)."""
+    return set(_REGISTRY)
+
+
 def clear() -> None:
     """Empty the registry. Intended for tests."""
     _REGISTRY.clear()
